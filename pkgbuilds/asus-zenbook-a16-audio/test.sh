@@ -44,4 +44,10 @@ if command -v udevadm >/dev/null; then
   udevadm verify --no-style "$rules" >/dev/null 2>&1 || fail "the SoundWire udev rule parses"
 fi
 
+wp="$pkgdir/usr/share/wireplumber/wireplumber.conf.d/60-asus-zenbook-a16-soft-volume.conf"
+[[ -f $wp ]] || fail "the WirePlumber soft-volume rule is installed"
+grep -q 'api.alsa.card.longname = "ASUSTeKCOMPUTERINC.-ZenbookA16UX3607OA-1.0-UX3607OA"' "$wp" ||
+  fail "the soft-volume rule only applies to the Zenbook A16's card"
+grep -q 'api.alsa.soft-mixer = true' "$wp" || fail "the soft-volume rule switches to software volume"
+
 echo "ok - asus-zenbook-a16-audio"

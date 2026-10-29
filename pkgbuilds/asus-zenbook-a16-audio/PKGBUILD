@@ -10,10 +10,14 @@
 #
 # The speaker amplifiers also fail to survive a SoundWire clock stop about two
 # times in three, so a udev rule keeps the two WSA SoundWire controllers awake.
+#
+# The amplifiers' PA Volume, which PipeWire uses as the hardware volume, has no
+# effect on this board, so a WirePlumber rule switches the card to software
+# volume.
 
 pkgname=asus-zenbook-a16-audio
 pkgver=1
-pkgrel=3
+pkgrel=4
 pkgdesc='Speaker and microphone topology and UCM profile for the ASUS Zenbook A16 (UX3607OA)'
 arch=('aarch64')
 # Qualcomm-only: the pacman platform guard keeps it off other hardware.
@@ -22,9 +26,11 @@ url="https://github.com/omacom/omarchy-pkgs"
 license=('MIT')
 depends=('linux-firmware-qcom' 'alsa-ucm-conf')
 source=('60-asus-zenbook-a16-soundwire.rules'
+        '60-asus-zenbook-a16-soft-volume.conf'
         'README.package.md')
 sha256sums=('9c33a10ecd9c764d8d70339d9072190ea2fc1a66359637299fd910adfd09bf0c'
-            '41774941ec6df244f3e288a495a5c8972c0e5601a5df8ed91029fccc871d49f5')
+            '9a730a6da8ba500031d0c755b92c8ab7e09e44d337006847c63154affd62c61e'
+            '8fd18ef7f19b193a3485ee94847fdd4a000e71bafd6fdcd72737b0571e0956a9')
 
 # The kernel names the topology after the device tree's model; UCM looks the
 # profile up by the card's long name, which the kernel builds from DMI.
@@ -41,6 +47,9 @@ package() {
 
   install -Dm644 60-asus-zenbook-a16-soundwire.rules \
     "$pkgdir/usr/lib/udev/rules.d/60-asus-zenbook-a16-soundwire.rules"
+
+  install -Dm644 60-asus-zenbook-a16-soft-volume.conf \
+    "$pkgdir/usr/share/wireplumber/wireplumber.conf.d/60-asus-zenbook-a16-soft-volume.conf"
 
   install -Dm644 README.package.md "$pkgdir/usr/share/doc/$pkgname/README.md"
 }

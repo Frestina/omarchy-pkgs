@@ -24,7 +24,14 @@ The four amplifiers sit on two SoundWire buses, the left pair on `6c80000.soundw
 
 `60-asus-zenbook-a16-soundwire.rules` sets `power/control=on` on the two controllers, for this board only (DMI board `UX3607OA`), so the bus clock never stops. With it all four amplifiers stayed attached through every idle/play cycle, and idle battery draw rose by under 0.1 W (6.52 W to 6.61 W, averaged over 40 s windows).
 
+## Volume
+
+UCM merges the four amplifiers' `PA Volume` controls into one `Speakers Volume`, which PipeWire uses as the speakers' hardware volume and fills out with software attenuation below it. On this board `PA Volume` does not change the output: measured with the built-in microphones, a woofer gave the same level (within 0.1 dB) at PA 6 and 12, with the amplifier's compander on and off, on fresh streams and at -20 and -1 dBFS, although the register write reaches the amplifier. So the part of the volume range the PA covers did nothing, about the top 30% with the upstream 0 dB PA ceiling.
+
+`60-asus-zenbook-a16-soft-volume.conf` is a WirePlumber rule that sets `api.alsa.soft-mixer` for this card (matched on its long name), so PipeWire does all of the volume in software and leaves the amplifiers at the levels UCM sets.
+
 ## Retirement
 
 - Topology and UCM: drop once linux-firmware ships a Zenbook A16 topology and alsa-ucm-conf a Zenbook A16 profile; the files would conflict.
 - udev rule: drop once the Qualcomm SoundWire driver resumes v3.1.0 controllers reliably, for example by resetting and re-enumerating instead of exiting clock stop.
+- WirePlumber rule: drop once `PA Volume` changes the output on this board, or UCM stops using it as the speakers' volume.

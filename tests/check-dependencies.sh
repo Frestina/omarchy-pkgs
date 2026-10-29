@@ -132,6 +132,20 @@ later=$(raw_db x13.db successor 2-1 REPLACES legacy)
   fail "a later repository's replaces leaves an earlier package alone"
 pass "a later repository's replaces leaves an earlier package alone"
 
+# Arch Linux ARM writes the older layout: %DEPENDS% and %PROVIDES% in a
+# separate depends file next to desc.
+dir=$(mktemp -d); mkdir -p "$dir/libglvnd-1.7.0-3" "$dir/hyprland-0.57.0-2"
+printf '%s\n' '%NAME%' 'libglvnd' '' '%VERSION%' '1.7.0-3' '' > "$dir/libglvnd-1.7.0-3/desc"
+printf '%s\n' '%PROVIDES%' 'libEGL.so=1-64' '' > "$dir/libglvnd-1.7.0-3/depends"
+printf '%s\n' '%NAME%' 'hyprland' '' '%VERSION%' '0.57.0-2' '' > "$dir/hyprland-0.57.0-2/desc"
+printf '%s\n' '%DEPENDS%' 'libEGL.so=1-64' 'libgone.so=2-64' '' > "$dir/hyprland-0.57.0-2/depends"
+bsdtar -czf "$work/alarm.db" -C "$dir" .
+rm -rf "$dir"
+ours=$(db o14.db)
+[[ $("$check" "$ours" "$core" "$work/alarm.db") == $'hyprland\tlibgone.so=2-64' ]] ||
+  fail "the older layout with a separate depends file is read"
+pass "the older layout with a separate depends file is read"
+
 # A missing dependency is reported.
 ours=$(db o9.db yaru-gtk-theme:1-1:gtk-engine-murrine:)
 extra=$(db e9.db hyprland:0.56.2-4::)

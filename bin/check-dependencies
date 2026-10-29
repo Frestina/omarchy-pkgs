@@ -50,7 +50,13 @@ meets() {
 rank=0
 for db in "$@"; do
   rank=$((rank + 1))
-  bsdtar -xOf "$db" '*/desc' | awk -v rank="$rank" -v OFS='\t' '
+  # Arch Linux ARM still writes the older layout, with dependencies and
+  # provisions in a separate `depends` file next to `desc`. Reverse order
+  # puts each entry's desc (and its %NAME%) before its depends.
+  mkdir "$work/db$rank"
+  bsdtar -xf "$db" -C "$work/db$rank"
+  find "$work/db$rank" -mindepth 2 -maxdepth 2 \( -name desc -o -name depends \) | sort -r | xargs -r cat |
+  awk -v rank="$rank" -v OFS='\t' '
     /^%NAME%$/ { getline; name = $0; next }
     /^%VERSION%$/ { getline; print "P", rank, name, $0; next }
     /^%DEPENDS%$/ { while ((getline line) > 0 && line != "") print "D", rank, name, line; next }

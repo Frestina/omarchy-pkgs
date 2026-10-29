@@ -1,0 +1,35 @@
+# Maintainer: David Heinemeier Hansson <david@hey.com>
+
+# Speakers and microphones for the ASUS Zenbook A16 (UX3607OA, Snapdragon X2
+# Elite). The card asks for a board-named AudioReach topology and UCM profile
+# that neither linux-firmware nor alsa-ucm-conf carries yet, so it never
+# registers and PipeWire falls back to a dummy output. The board wires its
+# audio exactly as Qualcomm's Glymur CRD does (four WSA884x speakers on
+# WSA_CODEC_DMA_RX_0, DMICs on VA_CODEC_DMA_TX_0), so point both names at the
+# CRD's files.
+
+pkgname=asus-zenbook-a16-audio
+pkgver=1
+pkgrel=1
+pkgdesc='Speaker and microphone topology and UCM profile for the ASUS Zenbook A16 (UX3607OA)'
+arch=('aarch64')
+# Qualcomm-only: the pacman platform guard keeps it off other hardware.
+groups=('omarchy-platform-qualcomm')
+url="https://github.com/omacom/omarchy-pkgs"
+license=('MIT')
+depends=('linux-firmware-qcom' 'alsa-ucm-conf')
+source=('README.package.md')
+sha256sums=('cade9bc8fd34a50a268790e3e8edfd43cab348df17691c35512d9551276d3d8e')
+
+_board=GLYMUR-ASUS-Zenbook-A16-UX3607OA
+
+package() {
+  install -d "$pkgdir/usr/lib/firmware/qcom/glymur"
+  ln -s GLYMUR-CRD-tplg.bin "$pkgdir/usr/lib/firmware/qcom/glymur/$_board-tplg.bin"
+
+  install -d "$pkgdir/usr/share/alsa/ucm2/conf.d/glymur"
+  ln -s ../../Qualcomm/glymur/GLYMUR-CRD.conf \
+    "$pkgdir/usr/share/alsa/ucm2/conf.d/glymur/$_board.conf"
+
+  install -Dm644 README.package.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

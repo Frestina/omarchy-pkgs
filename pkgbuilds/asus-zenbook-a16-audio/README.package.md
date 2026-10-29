@@ -18,6 +18,13 @@ The board's device tree has the same two audio links as Qualcomm's Glymur CRD: f
 
 The kernel requests the topology by the device tree's model, while UCM looks the profile up by the card's long name, which the kernel builds from DMI (`board_vendor-product_name-product_version-board_name`, stripped of spaces).
 
+## SoundWire clock stop
+
+The four amplifiers sit on two SoundWire buses, the left pair on `6c80000.soundwire` and the right pair on `6ca0000.soundwire`. Both controllers runtime-suspend 3 s after the speakers go idle by stopping the bus clock, and resume by restarting it. On this board that resume leaves one bus's amplifiers unattached, or attached with every register reading `0x21`, about two times in three (10 of 15 idle/play cycles). The amplifier driver's PA recovery then reports `PA fault ... 0x21` and leaves that pair disabled, so half the speakers are silent until the next stop. A full controller reset and enumeration, as at boot, has always brought all four up.
+
+`60-asus-zenbook-a16-soundwire.rules` sets `power/control=on` on the two controllers, for this board only (DMI board `UX3607OA`), so the bus clock never stops. With it all four amplifiers stayed attached through every idle/play cycle, and idle battery draw rose by under 0.1 W (6.52 W to 6.61 W, averaged over 40 s windows).
+
 ## Retirement
 
-Drop it once linux-firmware ships a Zenbook A16 topology and alsa-ucm-conf a Zenbook A16 profile; the files would conflict.
+- Topology and UCM: drop once linux-firmware ships a Zenbook A16 topology and alsa-ucm-conf a Zenbook A16 profile; the files would conflict.
+- udev rule: drop once the Qualcomm SoundWire driver resumes v3.1.0 controllers reliably, for example by resetting and re-enumerating instead of exiting clock stop.

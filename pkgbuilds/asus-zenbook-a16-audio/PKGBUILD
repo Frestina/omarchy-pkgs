@@ -7,10 +7,13 @@
 # audio exactly as Qualcomm's Glymur CRD does (four WSA884x speakers on
 # WSA_CODEC_DMA_RX_0, DMICs on VA_CODEC_DMA_TX_0), so point both names at the
 # CRD's files.
+#
+# The speaker amplifiers also fail to survive a SoundWire clock stop about two
+# times in three, so a udev rule keeps the two WSA SoundWire controllers awake.
 
 pkgname=asus-zenbook-a16-audio
 pkgver=1
-pkgrel=2
+pkgrel=3
 pkgdesc='Speaker and microphone topology and UCM profile for the ASUS Zenbook A16 (UX3607OA)'
 arch=('aarch64')
 # Qualcomm-only: the pacman platform guard keeps it off other hardware.
@@ -18,8 +21,10 @@ groups=('omarchy-platform-qualcomm')
 url="https://github.com/omacom/omarchy-pkgs"
 license=('MIT')
 depends=('linux-firmware-qcom' 'alsa-ucm-conf')
-source=('README.package.md')
-sha256sums=('818e2c5e4eaf1cf1d47e4372069c29330c876964a61163627d68d120c4c6d45b')
+source=('60-asus-zenbook-a16-soundwire.rules'
+        'README.package.md')
+sha256sums=('9c33a10ecd9c764d8d70339d9072190ea2fc1a66359637299fd910adfd09bf0c'
+            '41774941ec6df244f3e288a495a5c8972c0e5601a5df8ed91029fccc871d49f5')
 
 # The kernel names the topology after the device tree's model; UCM looks the
 # profile up by the card's long name, which the kernel builds from DMI.
@@ -33,6 +38,9 @@ package() {
   install -d "$pkgdir/usr/share/alsa/ucm2/conf.d/glymur"
   ln -s ../../Qualcomm/glymur/GLYMUR-CRD.conf \
     "$pkgdir/usr/share/alsa/ucm2/conf.d/glymur/$_longname.conf"
+
+  install -Dm644 60-asus-zenbook-a16-soundwire.rules \
+    "$pkgdir/usr/lib/udev/rules.d/60-asus-zenbook-a16-soundwire.rules"
 
   install -Dm644 README.package.md "$pkgdir/usr/share/doc/$pkgname/README.md"
 }

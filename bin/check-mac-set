@@ -44,6 +44,7 @@ BUILD_ROOT=$(realpath "${BASH_SOURCE[0]%/*}/..")
 source "$BUILD_ROOT/helpers/message-helpers.sh"
 source "$BUILD_ROOT/helpers/paths.sh"
 source "$BUILD_ROOT/helpers/package-metadata.sh"
+source "$BUILD_ROOT/helpers/repo-db.sh"
 
 INVENTORY=$BUILD_ROOT/release/mac-inventory.txt
 PREFIX=${OMARCHY_PUBLISH_PREFIX:-}
@@ -120,21 +121,13 @@ fi
 unpack "$BEFORE" "$WORK/before"
 
 # One line per package: name|version|base|depends|provides, the lists
-# space-separated. Not tabs: read would merge an empty field into the next.
+# space-separated (helpers/repo-db.sh reads the entries). Not tabs: read
+# would merge an empty field into the next.
 entries() { # entries <dir>
-  find "$1" -name desc -print0 | xargs -0r awk '
-    function flush() { if (name != "") print name "|" ver "|" base "|" deps "|" provs; name = ver = base = deps = provs = ""; section = "" }
-    FNR == 1 { flush() }
-    /^%[A-Z0-9]+%$/ { section = $0; next }
-    /^$/ { section = ""; next }
-    section == "%NAME%" { name = $0 }
-    section == "%VERSION%" { ver = $0 }
-    section == "%BASE%" { base = $0 }
-    section == "%DEPENDS%" { deps = deps (deps == "" ? "" : " ") $0 }
-    section == "%PROVIDES%" { provs = provs (provs == "" ? "" : " ") $0 }
-    END { flush() }' | awk -F'|' '$3 == "" { $3 = $1 } 1' OFS='|' | sort
+  repo_db_fields "$1" NAME VERSION BASE DEPENDS PROVIDES \
+    | awk -F'\t' '{ if ($3 == "") $3 = $1; $1 = $1 } 1' OFS='|' | sort
 }
-entries "$WORK/before" > "$WORK/before.tsv"
+entries "$WORK/before" > "$WORK/before.tsv" || usage "Cannot read $CHANNEL/$ARCH as it is"
 
 if [[ $ADDING == true ]]; then
   # As publish-artifact would leave it: each file replaces its name's entry
@@ -156,7 +149,7 @@ if [[ $ADDING == true ]]; then
   done
 else
   unpack "$AFTER" "$WORK/after"
-  entries "$WORK/after" > "$WORK/after.tsv"
+  entries "$WORK/after" > "$WORK/after.tsv" || usage "Cannot read $CHANNEL/$ARCH as the write would leave it"
 fi
 
 # --- what moves --------------------------------------------------------------

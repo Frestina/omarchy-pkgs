@@ -26,6 +26,7 @@ set -euo pipefail
 BUILD_ROOT=$(realpath "${BASH_SOURCE[0]%/*}/..")
 source "$BUILD_ROOT/helpers/message-helpers.sh"
 source "$BUILD_ROOT/helpers/paths.sh"
+source "$BUILD_ROOT/helpers/repo-db.sh"
 
 REMOTE=${REMOTE:-pkgs.omarchy.org:omarchy-pkgs}
 PREFIX=${OMARCHY_PUBLISH_PREFIX:-}
@@ -75,9 +76,7 @@ fi
 # re-run of a slot that already landed, an RC carried into an edge that is
 # ahead of it.
 if [[ -f "$WORK/repo/omarchy.db.tar.zst" ]]; then
-  served=$(tar -xO --zstd -f "$WORK/repo/omarchy.db.tar.zst" --wildcards '*/desc' 2>/dev/null | awk '
-    $0 == "%NAME%"    { getline; name = $0; next }
-    $0 == "%VERSION%" { getline; print name, $0 }')
+  served=$(repo_db_entries "$WORK/repo/omarchy.db.tar.zst" | cut -f1,2 | tr '\t' ' ')
   keep=()
   for f in "${FILES[@]}"; do
     name=$(bsdtar -xOf "$f" .PKGINFO | awk -F' = ' '$1=="pkgname"{print $2}')

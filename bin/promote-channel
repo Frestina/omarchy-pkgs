@@ -52,6 +52,7 @@ BUILD_ROOT=$(realpath "${BASH_SOURCE[0]%/*}/..")
 source "$BUILD_ROOT/helpers/message-helpers.sh"
 source "$BUILD_ROOT/helpers/paths.sh"
 source "$BUILD_ROOT/helpers/package-metadata.sh"
+source "$BUILD_ROOT/helpers/repo-db.sh"
 
 REMOTE=${REMOTE:-pkgs.omarchy.org:omarchy-pkgs}
 PREFIX=${OMARCHY_PUBLISH_PREFIX:-}
@@ -109,19 +110,11 @@ read_db() { # read_db <remote dir> <out.tsv>
     return 1
   fi
   rclone copyto "$dir/omarchy.db.tar.zst" "$db" --s3-no-head
+  # Unpacked next to it: the Mac package-set check (2b) builds its view of
+  # the destination from these entries.
   mkdir -p "$db.d"
   bsdtar -xf "$db" -C "$db.d" --include '*/desc'
-  # One desc per entry; a new file starts a new record.
-  find "$db.d" -name desc -print0 | xargs -0r awk '
-    function flush() { if (name != "") print name "\t" ver "\t" base "\t" file "\t" sum "\t" size; name = ver = base = file = sum = size = "" }
-    FNR == 1 { flush() }
-    /^%NAME%$/ { getline name }
-    /^%VERSION%$/ { getline ver }
-    /^%BASE%$/ { getline base }
-    /^%FILENAME%$/ { getline file }
-    /^%SHA256SUM%$/ { getline sum }
-    /^%CSIZE%$/ { getline size }
-    END { flush() }' | sort > "$out"
+  repo_db_entries "$db.d" | sort > "$out"
 }
 read_db "$SRC" "$WORK/src.tsv" || { print_error "No database at $SRC"; exit 1; }
 read_db "$DEST" "$WORK/dest.tsv" || print_warning "No database at $DEST yet; everything eligible is new there"

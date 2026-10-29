@@ -194,11 +194,10 @@ jobs:
                 set -euo pipefail
                 rc="R2:omarchy-pkgs/${OMARCHY_PUBLISH_PREFIX:+$OMARCHY_PUBLISH_PREFIX/}rc/$ARCH"
                 rclone copy "$rc/omarchy.db.tar.zst" /carry/db --s3-no-head
-                files=$(tar -xO --zstd -f /carry/db/omarchy.db.tar.zst --wildcards "*/desc" | awk -v want="$PKGVER" "
-                  \$0 == \"%FILENAME%\" { getline; file = \$0; next }
-                  \$0 == \"%NAME%\"     { getline; name = \$0; next }
-                  \$0 == \"%VERSION%\"  { getline; v = \$0; sub(/-[^-]*\$/, \"\", v)
-                                           if ((name == \"omarchy\" || name == \"omarchy-settings\") && v == want) print file }")
+                source helpers/repo-db.sh
+                files=$(repo_db_entries /carry/db/omarchy.db.tar.zst | awk -F"\t" -v want="$PKGVER" "
+                  { v = \$2; sub(/-[^-]*\$/, \"\", v) }
+                  (\$1 == \"omarchy\" || \$1 == \"omarchy-settings\") && v == want { print \$4 }")
                 if [[ $(wc -w <<<"$files") -ne 2 ]]; then
                   echo "rc/$ARCH does not serve the omarchy $PKGVER pair (found: ${files:-nothing})"
                   exit 1

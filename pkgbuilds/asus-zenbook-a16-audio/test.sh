@@ -18,19 +18,31 @@ source "$package_dir/PKGBUILD"
 pkgdir="$scratch/pkg"
 (cd "$package_dir" && package)
 
-# Each board name must resolve to the CRD file it stands in for.
+# The topology name must resolve to the CRD topology it stands in for.
 root="$scratch/root"
-mkdir -p "$root/usr/lib/firmware/qcom/glymur" "$root/usr/share/alsa/ucm2/Qualcomm/glymur"
+mkdir -p "$root/usr/lib/firmware/qcom/glymur"
 touch "$root/usr/lib/firmware/qcom/glymur/GLYMUR-CRD-tplg.bin"
-touch "$root/usr/share/alsa/ucm2/Qualcomm/glymur/GLYMUR-CRD.conf"
 cp -a "$pkgdir/usr" "$root/"
 
 tplg="$root/usr/lib/firmware/qcom/glymur/GLYMUR-ASUS-Zenbook-A16-UX3607OA-tplg.bin"
 [[ $(readlink -f "$tplg") == "$root/usr/lib/firmware/qcom/glymur/GLYMUR-CRD-tplg.bin" ]] ||
   fail "the topology links to the CRD topology"
-ucm="$root/usr/share/alsa/ucm2/conf.d/glymur/ASUSTeKCOMPUTERINC.-ZenbookA16UX3607OA-1.0-UX3607OA.conf"
-[[ $(readlink -f "$ucm") == "$root/usr/share/alsa/ucm2/Qualcomm/glymur/GLYMUR-CRD.conf" ]] ||
-  fail "the UCM profile links to the CRD profile"
+
+# The UCM profile restates the CRD profile and sets the WSA digital volumes on
+# every boot.
+ucm="$pkgdir/usr/share/alsa/ucm2/conf.d/glymur/ASUSTeKCOMPUTERINC.-ZenbookA16UX3607OA-1.0-UX3607OA.conf"
+[[ -f $ucm && ! -L $ucm ]] || fail "the UCM profile is a file"
+crd=/usr/share/alsa/ucm2/Qualcomm/glymur/GLYMUR-CRD.conf
+if [[ -f $crd ]]; then
+  while IFS= read -r line; do
+    [[ -z ${line//[[:space:]]/} || $line == \#* ]] && continue
+    grep -qxF -- "$line" "$ucm" || fail "the UCM profile restates the CRD profile: $line"
+  done <"$crd"
+fi
+for c in "WSA WSA_RX0" "WSA WSA_RX1" "WSA2 WSA_RX0" "WSA2 WSA_RX1"; do
+  sed -n '/^FixedBootSequence \[/,/^\]/p' "$ucm" | grep -qF "cset \"name='$c Digital Volume' 84\"" ||
+    fail "the UCM profile sets $c Digital Volume to 84 on every boot"
+done
 
 rules="$pkgdir/usr/lib/udev/rules.d/60-asus-zenbook-a16-soundwire.rules"
 [[ -f $rules ]] || fail "the SoundWire udev rule is installed"

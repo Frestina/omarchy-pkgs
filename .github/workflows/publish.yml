@@ -316,10 +316,15 @@ jobs:
           # split package's outputs share the pkgbase's directory, so match
           # on the artifact list rather than the name.
           # pkgbase is read inside the builder image: the Ubuntu host has no
-          # bsdtar. One container call maps every file to its pkgbase.
+          # bsdtar. One container call maps every file to its pkgbase, read
+          # as bin/publish-artifact and repo-add read it (helpers/pkginfo.sh).
           docker run --rm -v "$PWD:/w:ro" -w /w omarchy-pkg-builder:latest-x86_64-edge bash -c '
+            set -euo pipefail
+            source helpers/pkginfo.sh
             for f in build-output/edge/*/*.pkg.tar.zst; do
-              printf "%s %s\n" "$f" "$(bsdtar -xOf "$f" .PKGINFO | awk -F" = " "\$1==\"pkgbase\"{print \$2}")"
+              identity=$(pkginfo_identity "$f")
+              read -r _ base _ _ <<<"$identity"
+              printf "%s %s\n" "$f" "$base"
             done' > pkgbase.txt
           declare -A slot_files=()
           while read -r package arch channels publish_arches; do

@@ -45,6 +45,7 @@ source "$BUILD_ROOT/helpers/message-helpers.sh"
 source "$BUILD_ROOT/helpers/paths.sh"
 source "$BUILD_ROOT/helpers/package-metadata.sh"
 source "$BUILD_ROOT/helpers/repo-db.sh"
+source "$BUILD_ROOT/helpers/pkginfo.sh"
 
 INVENTORY=$BUILD_ROOT/release/mac-inventory.txt
 PREFIX=${OMARCHY_PUBLISH_PREFIX:-}
@@ -136,11 +137,13 @@ if [[ $ADDING == true ]]; then
   cp "$WORK/before.tsv" "$WORK/after.tsv"
   for f in "${ADD[@]}"; do
     [[ -f $f ]] || usage "Not a package file: $f"
-    bsdtar -xOf "$f" .PKGINFO | awk -F' = ' '
+    # Read as publish-artifact and repo-add read it (helpers/pkginfo.sh).
+    fields=$(pkginfo_fields "$f") || usage "Not a package makepkg writes: $f"
+    awk -F'\t' '
       $1 == "pkgname" { name = $2 } $1 == "pkgver" { ver = $2 } $1 == "pkgbase" { base = $2 }
       $1 == "depend" { deps = deps (deps == "" ? "" : " ") $2 }
       $1 == "provides" { provs = provs (provs == "" ? "" : " ") $2 }
-      END { print name "|" ver "|" (base == "" ? name : base) "|" deps "|" provs }' > "$WORK/new.tsv"
+      END { print name "|" ver "|" (base == "" ? name : base) "|" deps "|" provs }' <<<"$fields" > "$WORK/new.tsv"
     IFS='|' read -r name ver _ < "$WORK/new.tsv"
     have=$(awk -F'|' -v n="$name" '$1 == n { print $2 }' "$WORK/after.tsv")
     [[ -n $have ]] && (( $(vercmp "$ver" "$have") <= 0 )) && continue

@@ -45,7 +45,7 @@ jobs:
       rebuild: ${{ steps.list.outputs.rebuild }}
       rebuild_count: ${{ steps.list.outputs.rebuild_count }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -109,7 +109,7 @@ jobs:
           set -euo pipefail
           bin/recipe-index > recipe-index.tsv
           echo "$(wc -l < recipe-index.tsv) recipe index lines"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4.6.2
         with:
           name: recipe-index
           path: recipe-index.tsv
@@ -135,7 +135,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJson(needs.changes.outputs.rebuild) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
         with:
           persist-credentials: false
       # The same check the publish job makes before building: a re-run for a
@@ -170,7 +170,7 @@ jobs:
           tar -tvf packages.tar
       - name: Upload artifact
         if: steps.build.outputs.built == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: ${{ steps.build.outputs.label }}
           path: packages.tar
@@ -184,7 +184,7 @@ jobs:
         run: echo "${{ github.run_id }}" > published
       - name: Upload the record
         if: steps.build.outputs.built == 'false'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: published-${{ steps.build.outputs.label }}
           path: published
@@ -216,12 +216,12 @@ jobs:
       cancel-in-progress: false
       queue: max
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.4.0
         with:
           persist-credentials: false
 
       # This run's recipe index, from the changes job.
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4.3.0
         with:
           name: recipe-index
           path: ${{ runner.temp }}/recipe-index
@@ -550,7 +550,7 @@ jobs:
 
       - name: Keep the publish record
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: publish-record-${{ github.run_id }}
           path: publish-record.json
@@ -583,7 +583,7 @@ jobs:
       contents: read
       pull-requests: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4.3.0
         with:
           name: publish-record-${{ github.run_id }}
       - name: Render

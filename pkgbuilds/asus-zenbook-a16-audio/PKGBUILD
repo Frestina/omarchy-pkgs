@@ -17,7 +17,7 @@
 
 pkgname=asus-zenbook-a16-audio
 pkgver=1
-pkgrel=5
+pkgrel=1
 pkgdesc='Speaker and microphone topology and UCM profile for the ASUS Zenbook A16 (UX3607OA)'
 arch=('aarch64')
 # Qualcomm-only: the pacman platform guard keeps it off other hardware.
@@ -29,10 +29,10 @@ source=('ucm-asus-zenbook-a16.conf'
         '60-asus-zenbook-a16-soundwire.rules'
         '60-asus-zenbook-a16-soft-volume.conf'
         'README.package.md')
-sha256sums=('d7297f139a55a54ff9559861bf0c685fee935db3e7bf49148d678675c2cf6156'
+sha256sums=('8cd235438caefd24755bb2a9ca7ed6f539517804405f43e4f8337f6a80c0c6ae'
             '9c33a10ecd9c764d8d70339d9072190ea2fc1a66359637299fd910adfd09bf0c'
             '9a730a6da8ba500031d0c755b92c8ab7e09e44d337006847c63154affd62c61e'
-            '0f8a22154ed684e94fa9806ee6319f45967bc09ef492a279a89af10e14c5be68')
+            '936be7596dc627761c4e2466d789e20b2f52edd19735aa9ebf04bd0152f19304')
 
 # The kernel names the topology after the device tree's model; UCM looks the
 # profile up by the card's long name, which the kernel builds from DMI.

@@ -40,8 +40,8 @@ if [[ -f $crd ]]; then
   done <"$crd"
 fi
 for c in "WSA WSA_RX0" "WSA WSA_RX1" "WSA2 WSA_RX0" "WSA2 WSA_RX1"; do
-  sed -n '/^FixedBootSequence \[/,/^\]/p' "$ucm" | grep -qF "cset \"name='$c Digital Volume' 84\"" ||
-    fail "the UCM profile sets $c Digital Volume to 84 on every boot"
+  sed -n '/^FixedBootSequence \[/,/^\]/p' "$ucm" | grep -qF "cset \"name='$c Digital Volume' 100%\"" ||
+    fail "the UCM profile sets $c Digital Volume to its ceiling on every boot"
 done
 
 rules="$pkgdir/usr/lib/udev/rules.d/60-asus-zenbook-a16-soundwire.rules"

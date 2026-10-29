@@ -8,7 +8,7 @@
 pkgbase=linux-omarchy-aarch64
 _kernel=linux-omarchy
 pkgver=7.3
-pkgrel=5
+pkgrel=6
 pkgdesc='Omarchy Linux for aarch64 (BORE CPU scheduler, ADIOS I/O scheduler)'
 url='https://omarchy.org'
 arch=(
@@ -414,6 +414,8 @@ source=(
   2435-thunderbolt-qcom-Build-the-Glymur-USB4-drivers-as-th.patch
   2436-ASoC-codecs-lpass-wsa-macro-add-the-RX1-path-control.patch
   2437-drm-msm-dpu-size-the-CWB-list-by-the-CWB-blocks-an-e.patch
+  2438-soundwire-qcom-re-enumerate-v3.1.0-controllers-on-ru.patch
+  2439-ASoC-qcom-x1e80100-raise-the-Zenbook-A16-digital-spe.patch
 )
 source_aarch64=(config.aarch64)
 validpgpkeys=(
@@ -855,7 +857,9 @@ sha256sums=('87363c24f10e06321eb362765521094e94471f6bff8bce2d6b3e40f39f004953'
             '5b40c3bd05869889272780a1282478f9d2514e06175c447a7e6d0f1c5fb26790'
             'cc428c59ee88fb70a11d0f44ae6884b191b755df91e97ba6915295b6d0a4b7db'
             'ee46aa918f9a180b46cb8d8c0e38c282533d60c2312c014247c50aba62e2114e'
-            '8ad56c0b1ec5024442e9b3d226554d9a06b540c89e33bef113d74dfd78f2912c')
+            '8ad56c0b1ec5024442e9b3d226554d9a06b540c89e33bef113d74dfd78f2912c'
+            '968bf76f669b74d26f474c520b23fcadce4af918fa259abbb54f5d3d0f5f42d4'
+            '970ac5b158529d14c8da70a23dd8ef5c43a3cc684b0e3ab4fe7acdbf61d2bc1b')
 sha256sums_aarch64=('a6579278027580ce6075c9567695a7dd0386c83af1ba9e6a322cdd2d193e15b2')
 b2sums=('b7fb8c74de664fdd0cd7b42afff2720bda5c4bdb2ffffa80a745c5fecd029c6fe739a3ecbdaa5c5e27194a8acb9bf861271e7bafe6eb475bb3ccd6862e4caf60'
         'SKIP'
@@ -1291,7 +1295,9 @@ b2sums=('b7fb8c74de664fdd0cd7b42afff2720bda5c4bdb2ffffa80a745c5fecd029c6fe739a3e
         '768a08970359c652f0f5b7ed5947786094a168f87302dba98bc839d8da6e873f4575fecd3db4c700eb416329acececa6caded9a778a7944e2192a14d6d366a41'
         '48edfa265ea74b3e1c19036e92a9b1bd8c72bc8244c721113d07d2d9a1015be17b6d580bf61359355045682e95a97430ff08216aa9d6d66ff4ec2bd3b3e99154'
         'eb6a846ce81fe75273fc6c62279f6047b624fb19600b50c82cfb5f4ee400a3224e79be75859f22c4c6c0876e50f87565e5e514081154398885822a7fd515f2de'
-        '49d9b22a9da5e4a2a36d23e0ce7d937a276d520aa121d7716e48d7a592e509131b6b95ce5f1442109d7546b1500eca333e0106f5eae399434c4e2d76251fb8fa')
+        '49d9b22a9da5e4a2a36d23e0ce7d937a276d520aa121d7716e48d7a592e509131b6b95ce5f1442109d7546b1500eca333e0106f5eae399434c4e2d76251fb8fa'
+        'da8012c8bd761395f6a3d2b53e566384938940d1c5678af25952f7cdcb196e1683fc127f122c73278f16a90dc93d3b53a013b5c87770f960dd9449b24159344a'
+        '8db8762a70a084ca42527c928bfbacaaaa2fc40cd5360e7420d400eb9b87467b684138ffd745ada7d7e0d90421d2fc78faa2496ce80f3f8414369180438e9c5f')
 b2sums_aarch64=('e60c4019f5af9fed22c3f032ed7be5b8471d0941e9a26ca71f857e85191558dc73204ea4453684d3238750a670eb62a0fc949d26394556bad0adeba174aed007')
 
 # https://www.kernel.org/pub/linux/kernel/v7.x/sha256sums.asc

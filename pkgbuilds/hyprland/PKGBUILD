@@ -5,9 +5,10 @@
 
 pkgname=(hyprland hyprpm)
 pkgver=0.56.2
-pkgrel=7
+pkgrel=8
 pkgdesc='a highly customizable dynamic tiling Wayland compositor'
-arch=(aarch64)
+# Built for x86_64 too, so PCs stay on 0.56.2 while Arch moves on: see README.md
+arch=(x86_64 aarch64)
 url="https://github.com/hyprwm/${pkgname^}"
 license=(BSD-3-Clause)
 depends=(cairo # libcairo.so

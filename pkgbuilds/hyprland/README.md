@@ -9,3 +9,7 @@ Remove `sync: false` and `software-renderer.patch` in the same change once the s
 ## Output and VRR fixes
 
 `wl-output-global-grace.patch` keeps a removed `wl_output` global for five seconds before destroying it, as wlroots does. Without it, an output that comes and goes within a roundtrip, such as a dock's monitor flapping while its tunnel comes up, disconnects every client that has not bound it yet with "global wl_output (N) is unavailable". `monitor-rule-vrr.patch` makes a config reload apply a monitor rule's `vrr`; without it, changing only `vrr` is ignored until the next session. Neither is upstream yet. Rebase both with `--fuzz=0` on a version bump, and drop each once the selected release carries the fix.
+
+## x86_64
+
+This recipe also builds for x86_64, so PCs stay on 0.56.2 instead of taking Arch's `extra/hyprland`: `[omarchy]` comes before `[extra]` in Omarchy's `pacman.conf`. Arch's 0.57.0 breaks `omarchy-hyprland-titlebars`, which requires `hyprland=0.56.2` and does not build against 0.57.0, so move both architectures and the plugin to a newer Hyprland in one change.

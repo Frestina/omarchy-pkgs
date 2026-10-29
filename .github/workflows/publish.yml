@@ -328,7 +328,8 @@ jobs:
           RCLONE_CONFIG_R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
           OMARCHY_PUBLISH_PREFIX: ${{ vars.OMARCHY_PUBLISH_PREFIX }}
         # repo-add, gpg and bsdtar are Arch tools; run the publish inside the
-        # builder image (host-native, edge) with the workspace mounted.
+        # publisher image (ci/publisher.Dockerfile: Arch packages only) with
+        # the workspace mounted.
         run: |
           set -euo pipefail
           if ! compgen -G "build-output/edge/*/*.pkg.tar.zst" >/dev/null; then
@@ -341,36 +342,17 @@ jobs:
             cat publish-record.json
             exit 0
           fi
-          # A fresh runner has no images, and building this one here cost
-          # every publish about 100 s (and 20 s more to start a container
-          # from it) for the 14 s of signing and upload it is needed for.
-          # builder-images.yml already publishes the tested image for exactly
-          # these build inputs under their key; pull that. Build only when no
-          # image carries the key: a merge that changed build/ publishes
-          # before the refresh it triggered has finished.
-          builder=omarchy-pkg-builder:latest-x86_64-edge
-          if ! docker image inspect "$builder" >/dev/null 2>&1; then
-            key=$(bin/builder-image key --arch x86_64 --mirror edge)
-            published="ghcr.io/omacom/omarchy-pkg-builder:$key"
-            if docker pull --quiet "$published" &&
-              [[ $(docker image inspect "$published" --format '{{index .Config.Labels "org.omarchy.builder.key"}}') == "$key" ]]; then
-              docker tag "$published" "$builder"
-              echo "==> Builder image: pulled $published"
-            else
-              echo "==> Builder image: none published for $key, building it"
-              docker buildx build --load -t "$builder" --build-arg MIRROR=edge build
-            fi
-          fi
+          docker build --quiet -t omarchy-publisher -f ci/publisher.Dockerfile ci
 
           # Group the merge's files by the (channel, architecture) slot each
           # belongs to. A package's files live under build-output/edge/<built
           # arch>/ and are named <pkgname>-<ver>-<arch|any>.pkg.tar.zst; a
           # split package's outputs share the pkgbase's directory, so match
           # on the artifact list rather than the name.
-          # pkgbase is read inside the builder image: the Ubuntu host has no
+          # pkgbase is read inside the publisher image: the Ubuntu host has no
           # bsdtar. One container call maps every file to its pkgbase, read
           # as bin/publish-artifact and repo-add read it (helpers/pkginfo.sh).
-          docker run --rm -v "$PWD:/w:ro" -w /w omarchy-pkg-builder:latest-x86_64-edge bash -c '
+          docker run --rm -v "$PWD:/w:ro" -w /w omarchy-publisher bash -c '
             set -euo pipefail
             source helpers/pkginfo.sh
             for f in build-output/edge/*/*.pkg.tar.zst; do
@@ -437,7 +419,7 @@ jobs:
             -e RCLONE_CONFIG_R2_TYPE -e RCLONE_CONFIG_R2_PROVIDER -e RCLONE_CONFIG_R2_ENDPOINT -e RCLONE_CONFIG_R2_NO_CHECK_BUCKET \
             -e RCLONE_CONFIG_R2_ACCESS_KEY_ID -e RCLONE_CONFIG_R2_SECRET_ACCESS_KEY \
             -v "$PWD:/w:ro" -v "$RUNNER_TEMP/recipe-index:/index:ro" -w /w \
-            omarchy-pkg-builder:latest-x86_64-edge \
+            omarchy-publisher \
             bin/check-mac-set --remote R2:omarchy-pkgs --recipe-index /index/recipe-index.tsv --slots mac-slots.txt; then
             echo "::error title=Mac package set::this merge would leave rc or stable without the qualified Mac set; nothing published"
             while read -r mirror parch files; do record_slot "$mirror" "$parch" refused "$files"; done < mac-slots.txt
@@ -453,7 +435,7 @@ jobs:
                 -e RCLONE_CONFIG_R2_TYPE -e RCLONE_CONFIG_R2_PROVIDER -e RCLONE_CONFIG_R2_ENDPOINT -e RCLONE_CONFIG_R2_NO_CHECK_BUCKET \
                 -e RCLONE_CONFIG_R2_ACCESS_KEY_ID -e RCLONE_CONFIG_R2_SECRET_ACCESS_KEY \
                 -v "$PWD:/w:ro" -w /w \
-                omarchy-pkg-builder:latest-x86_64-edge \
+                omarchy-publisher \
                 bin/publish-artifact --remote R2:omarchy-pkgs --mirror "$mirror" --arch "$parch" $files; then
                 record_slot "$mirror" "$parch" published "$files"
               else
@@ -507,22 +489,12 @@ jobs:
             exit 0
           fi
 
-          # The Publish step skips its image pull when it has nothing new.
-          builder=omarchy-pkg-builder:latest-x86_64-edge
-          if ! docker image inspect "$builder" >/dev/null 2>&1; then
-            published="ghcr.io/omacom/omarchy-pkg-builder:$(bin/builder-image key --arch x86_64 --mirror edge)"
-            if docker pull --quiet "$published"; then
-              docker tag "$published" "$builder"
-            else
-              docker buildx build --load -t "$builder" --build-arg MIRROR=edge build
-            fi
-          fi
+          # The Publish step skips building the image when it has nothing new.
+          docker image inspect omarchy-publisher >/dev/null 2>&1 \
+            || docker build --quiet -t omarchy-publisher -f ci/publisher.Dockerfile ci
 
-          # The builder image runs as its own user; let it append the record.
           mkdir -p "$RUNNER_TEMP/fast-ring"
           : > "$RUNNER_TEMP/fast-ring/record.jsonl"
-          chmod 0777 "$RUNNER_TEMP/fast-ring"
-          chmod 0666 "$RUNNER_TEMP/fast-ring/record.jsonl"
           status=0
           # Plan and check every slot (bin/check-mac-set, inside
           # promote-channel) before any publishes: a refusal on one
@@ -538,7 +510,7 @@ jobs:
                 -e OMARCHY_PUBLISH_PREFIX \
                 -e RCLONE_CONFIG_R2_TYPE -e RCLONE_CONFIG_R2_PROVIDER -e RCLONE_CONFIG_R2_ENDPOINT -e RCLONE_CONFIG_R2_NO_CHECK_BUCKET \
                 -e RCLONE_CONFIG_R2_ACCESS_KEY_ID -e RCLONE_CONFIG_R2_SECRET_ACCESS_KEY \
-                -v "$PWD:/w:ro" -v "$RUNNER_TEMP/fast-ring:/out" -v "$RUNNER_TEMP/recipe-index:/index:ro" -w /w "$builder" \
+                -v "$PWD:/w:ro" -v "$RUNNER_TEMP/fast-ring:/out" -v "$RUNNER_TEMP/recipe-index:/index:ro" -w /w omarchy-publisher \
                 bin/promote-channel --remote R2:omarchy-pkgs --fast-ring --from edge --to "$mirror" --arch "$parch" \
                   --recipe-index /index/recipe-index.tsv --dry-run --record /out/preflight.jsonl $list; then
                 echo "::error title=Mac package set::the fast-ring catch-up into $mirror/$parch was refused; nothing published"
@@ -560,7 +532,7 @@ jobs:
                 -e GPG_PRIVATE_KEY -e GPG_PASSPHRASE -e OMARCHY_PUBLISH_PREFIX \
                 -e RCLONE_CONFIG_R2_TYPE -e RCLONE_CONFIG_R2_PROVIDER -e RCLONE_CONFIG_R2_ENDPOINT -e RCLONE_CONFIG_R2_NO_CHECK_BUCKET \
                 -e RCLONE_CONFIG_R2_ACCESS_KEY_ID -e RCLONE_CONFIG_R2_SECRET_ACCESS_KEY \
-                -v "$PWD:/w:ro" -v "$RUNNER_TEMP/fast-ring:/out" -v "$RUNNER_TEMP/recipe-index:/index:ro" -w /w "$builder" \
+                -v "$PWD:/w:ro" -v "$RUNNER_TEMP/fast-ring:/out" -v "$RUNNER_TEMP/recipe-index:/index:ro" -w /w omarchy-publisher \
                 bin/promote-channel --remote R2:omarchy-pkgs --fast-ring --from edge --to "$mirror" --arch "$parch" \
                   --recipe-index /index/recipe-index.tsv --record /out/record.jsonl $list; then
                 status=1

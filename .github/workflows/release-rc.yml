@@ -137,12 +137,10 @@ jobs:
             echo "Nothing to publish: rc already serves these pins on every architecture."
             exit 0
           fi
-          # repo-add, gpg and bsdtar are Arch tools: run in the tested builder
-          # image, as the publish job does. A change to build/ runs before
-          # builder-images.yml has published an image under its new key;
-          # build that image here instead.
-          builder=ghcr.io/omacom/omarchy-pkg-builder:$(bin/builder-image key --arch x86_64 --mirror edge)
-          docker pull --quiet "$builder" || docker buildx build --load -t "$builder" --build-arg MIRROR=edge build
+          # repo-add, gpg and bsdtar are Arch tools: run in the publisher
+          # image (ci/publisher.Dockerfile: Arch packages only), as the
+          # publish job does.
+          docker build --quiet -t omarchy-publisher -f ci/publisher.Dockerfile ci
           for arch in x86_64 aarch64; do
             files=$(ls build-output/rc/"$arch"/*.pkg.tar.zst 2>/dev/null | tr '\n' ' ' || true)
             [[ -n "$files" ]] || continue
@@ -151,7 +149,7 @@ jobs:
               -e GPG_PRIVATE_KEY -e GPG_PASSPHRASE -e OMARCHY_PUBLISH_PREFIX \
               -e RCLONE_CONFIG_R2_TYPE -e RCLONE_CONFIG_R2_PROVIDER -e RCLONE_CONFIG_R2_ENDPOINT -e RCLONE_CONFIG_R2_NO_CHECK_BUCKET \
               -e RCLONE_CONFIG_R2_ACCESS_KEY_ID -e RCLONE_CONFIG_R2_SECRET_ACCESS_KEY \
-              -v "$PWD:/w:ro" -w /w "$builder" \
+              -v "$PWD:/w:ro" -w /w omarchy-publisher \
               bin/publish-artifact --remote R2:omarchy-pkgs --mirror rc --arch "$arch" $files; then
               status=published
             else
@@ -178,11 +176,10 @@ jobs:
           OMARCHY_PUBLISH_PREFIX: ${{ vars.OMARCHY_PUBLISH_PREFIX }}
         run: |
           set -euo pipefail
-          builder=ghcr.io/omacom/omarchy-pkg-builder:$(bin/builder-image key --arch x86_64 --mirror edge)
-          docker image inspect "$builder" >/dev/null 2>&1 || docker pull --quiet "$builder" || docker buildx build --load -t "$builder" --build-arg MIRROR=edge build
+          docker image inspect omarchy-publisher >/dev/null 2>&1 \
+            || docker build --quiet -t omarchy-publisher -f ci/publisher.Dockerfile ci
           for arch in x86_64 aarch64; do
-            # The builder image runs as its own user, not the runner's.
-            mkdir -p "edge-carry/$arch" && chmod 777 "edge-carry/$arch"
+            mkdir -p "edge-carry/$arch"
             # The pair's filenames come from rc's database, so edge gets the
             # very files rc serves, not whatever else shares the version.
             if docker run --rm \
@@ -190,7 +187,7 @@ jobs:
               -e GPG_PRIVATE_KEY -e GPG_PASSPHRASE -e OMARCHY_PUBLISH_PREFIX \
               -e RCLONE_CONFIG_R2_TYPE -e RCLONE_CONFIG_R2_PROVIDER -e RCLONE_CONFIG_R2_ENDPOINT -e RCLONE_CONFIG_R2_NO_CHECK_BUCKET \
               -e RCLONE_CONFIG_R2_ACCESS_KEY_ID -e RCLONE_CONFIG_R2_SECRET_ACCESS_KEY \
-              -v "$PWD:/w:ro" -v "$PWD/edge-carry/$arch:/carry" -w /w "$builder" bash -c '
+              -v "$PWD:/w:ro" -v "$PWD/edge-carry/$arch:/carry" -w /w omarchy-publisher bash -c '
                 set -euo pipefail
                 rc="R2:omarchy-pkgs/${OMARCHY_PUBLISH_PREFIX:+$OMARCHY_PUBLISH_PREFIX/}rc/$ARCH"
                 rclone copy "$rc/omarchy.db.tar.zst" /carry/db --s3-no-head

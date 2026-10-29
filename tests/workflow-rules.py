@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # Self-test over every workflow: a publishing job (one in the publish
 # environment, or using its credentials) works from plans and indexes made
-# by other jobs instead of reading recipes, and takes values from other jobs
-# and dispatch inputs through env:, read as "$VAR", not as ${{ ... }} inside
-# a script. The rule is per job, since a job's steps share a workspace.
+# by other jobs instead of reading recipes, takes values from other jobs and
+# dispatch inputs through env:, read as "$VAR", not as ${{ ... }} inside a
+# script, and runs its tools in the publisher image. The rule is per job,
+# since a job's steps share a workspace.
 import re
 import sys
 from pathlib import Path
@@ -20,6 +21,8 @@ RECIPE = re.compile(
 )
 # Values another job, the matrix or a dispatch made.
 SPLICED = re.compile(r"\$\{\{\s*(needs\.|matrix\.|inputs\.|github\.event\.inputs\.)")
+# Publishing jobs run their tools in ci/publisher.Dockerfile.
+BUILDER = re.compile(r"omarchy-pkg-builder|bin/builder-image|buildx build")
 
 problems = []
 for wf in sorted((ROOT / ".github/workflows").glob("*.yml")):
@@ -37,9 +40,11 @@ for wf in sorted((ROOT / ".github/workflows").glob("*.yml")):
                 problems.append(f"{where} reads a recipe: {m.group(0).strip()}")
             if m := SPLICED.search(run):
                 problems.append(f"{where} splices {m.group(0)}...}} into shell")
+            if m := BUILDER.search(run):
+                problems.append(f"{where} uses the builder image: {m.group(0)}")
 
 for p in problems:
     print(f"FAIL: {p}")
 if problems:
     sys.exit(1)
-print("PASS: no publishing job reads a recipe or splices a value into shell")
+print("PASS: no publishing job reads a recipe, splices a value into shell or uses the builder image")

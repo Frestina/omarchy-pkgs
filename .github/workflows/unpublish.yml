@@ -77,12 +77,10 @@ jobs:
           OMARCHY_PUBLISH_PREFIX: ${{ vars.OMARCHY_PUBLISH_PREFIX }}
         run: |
           set -euo pipefail
-          # repo-remove and bsdtar are Arch tools: run in the tested builder
-          # image, as the publish job does.
-          builder=ghcr.io/omacom/omarchy-pkg-builder:$(bin/builder-image key --arch x86_64 --mirror edge)
-          # A change to build/ runs before builder-images.yml has published an
-          # image under its new key; build that image here instead.
-          docker pull --quiet "$builder" || docker buildx build --load -t "$builder" --build-arg MIRROR=edge build
+          # repo-remove and bsdtar are Arch tools: run in the publisher image
+          # (ci/publisher.Dockerfile: Arch packages only), as the publish job
+          # does.
+          docker build --quiet -t omarchy-publisher -f ci/publisher.Dockerfile ci
           for mirror in $CHANNELS; do
             [[ $mirror == edge || $mirror == rc || $mirror == stable ]] || { echo "::error::Unknown channel: $mirror"; exit 1; }
             for arch in x86_64 aarch64; do
@@ -99,7 +97,7 @@ jobs:
                 -e OMARCHY_PUBLISH_PREFIX \
                 -e RCLONE_CONFIG_R2_TYPE -e RCLONE_CONFIG_R2_PROVIDER -e RCLONE_CONFIG_R2_ENDPOINT -e RCLONE_CONFIG_R2_NO_CHECK_BUCKET \
                 -e RCLONE_CONFIG_R2_ACCESS_KEY_ID -e RCLONE_CONFIG_R2_SECRET_ACCESS_KEY \
-                -v "$PWD:/w:ro" -w /w "$builder" \
+                -v "$PWD:/w:ro" -w /w omarchy-publisher \
                 bin/unpublish-packages --remote R2:omarchy-pkgs --mirror "$mirror" --arch "$arch" "${retire[@]}"
             done
           done

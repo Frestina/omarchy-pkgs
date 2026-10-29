@@ -28,7 +28,7 @@ cp -a "$pkgdir/usr" "$root/"
 tplg="$root/usr/lib/firmware/qcom/glymur/GLYMUR-ASUS-Zenbook-A16-UX3607OA-tplg.bin"
 [[ $(readlink -f "$tplg") == "$root/usr/lib/firmware/qcom/glymur/GLYMUR-CRD-tplg.bin" ]] ||
   fail "the topology links to the CRD topology"
-ucm="$root/usr/share/alsa/ucm2/conf.d/glymur/GLYMUR-ASUS-Zenbook-A16-UX3607OA.conf"
+ucm="$root/usr/share/alsa/ucm2/conf.d/glymur/ASUSTeKCOMPUTERINC.-ZenbookA16UX3607OA-1.0-UX3607OA.conf"
 [[ $(readlink -f "$ucm") == "$root/usr/share/alsa/ucm2/Qualcomm/glymur/GLYMUR-CRD.conf" ]] ||
   fail "the UCM profile links to the CRD profile"
 

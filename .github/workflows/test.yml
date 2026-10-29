@@ -55,7 +55,7 @@ jobs:
             -w /workspace \
             ghcr.io/archlinux/archlinux:base-devel bash -lc '
               set -euo pipefail
-              pacman -Syu --noconfirm git jq python libarchive neovim tmux
+              pacman -Syu --noconfirm git jq python python-yaml libarchive neovim tmux
               python tests/owe-package-restart.py
               python tests/oma-service-removal.py
               python tests/passwordless-package-lifecycle.py
@@ -83,8 +83,10 @@ jobs:
               ./tests/controller.sh
               ./tests/artifact-helpers.sh
               ./tests/build-matrix.sh
+              ./tests/publish-plan.sh
               ./tests/build-artifact.sh
               ./tests/repo-db.sh
+              python tests/workflow-rules.py
               ./tests/mac-installer-dispatch.sh
               ./tests/limine-mkinitcpio-hook.sh
               ./tests/voxtype-bin-install.sh

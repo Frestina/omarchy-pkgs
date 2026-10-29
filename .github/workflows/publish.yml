@@ -33,6 +33,10 @@ on:
 # never behind its kernel build.
 
 jobs:
+  # The plan: which packages and architectures the push touched, the pkgbase
+  # each one builds, and whether its build can be reused, must be rebuilt, or
+  # is already published. The publish job gets that as data (the matrix,
+  # with a decision on every entry) and works from it alone.
   changes:
     runs-on: ubuntu-latest
     outputs:
@@ -48,23 +52,23 @@ jobs:
       - id: list
         env:
           GH_TOKEN: ${{ github.token }}
+          PACKAGES: ${{ github.event.inputs.packages }}
+          BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
-          if [[ -n "${{ github.event.inputs.packages }}" ]]; then
-            names="${{ github.event.inputs.packages }}"
+          if [[ -n $PACKAGES ]]; then
+            names=$PACKAGES
           else
-            names=$(git diff --name-only "${{ github.event.before }}..${{ github.sha }}" -- pkgbuilds \
+            names=$(git diff --name-only "$BEFORE..$GITHUB_SHA" -- pkgbuilds \
               | awk -F/ '$1=="pkgbuilds" && NF>2 {print $2}' | sort -u)
           fi
           matrix=$(printf '%s\n' $names | bin/build-matrix)
-          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
-          echo "count=$(jq '.include | length' <<<"$matrix")" >> "$GITHUB_OUTPUT"
           jq -r '.include[] | "\(.package) \(.arch) -> \(.channels)"' <<<"$matrix"
           # Reuse or rebuild, decided per entry and said out loud. A tree with
           # no build artifact (PR artifacts last 7 days; a dispatch may name
           # any package) goes to the rebuild job, on the runner build-matrix
           # names for it: the one its PR build would have had.
-          rebuild=()
+          rebuild=() planned=()
           echo "| package | arch | tree | decision |" >> "$GITHUB_STEP_SUMMARY"
           echo "| --- | --- | --- | --- |" >> "$GITHUB_STEP_SUMMARY"
           while read -r entry; do
@@ -73,26 +77,44 @@ jobs:
             label="$package-$arch-$hash"
             # Only an artifact from a run that may supply it (bin/build-artifact).
             found=$(bin/build-artifact "$package" "$arch")
-            # The plan the publish job makes, made here before a runner is
-            # asked for: a tree the channel already holds at master's version
-            # (a re-run, or a dispatch naming a package that is fine) needs
-            # no build, and an x86 rebuild would wait minutes for a droplet
-            # to find that out in seconds.
+            # A tree the channel already holds at master's version (a re-run,
+            # or a dispatch naming a package that is fine) needs no build, and
+            # an x86 rebuild would wait minutes for a droplet to find that out
+            # in seconds.
             plan=""
             [[ -n "$found" ]] || plan=$(bin/build --dry-run --mirror edge --arch "$arch" --package "$package" 2>&1 | grep -E '^==> Plan complete' || true)
             if [[ -n "$found" ]]; then
-              decision="reuse the build artifact (run ${found##* })"
+              decision=reuse
+              said="reuse the build artifact (run ${found##* })"
             elif [[ -n "$plan" && -z "$(sed -E 's/.*would build: *//' <<<"$plan" | tr -d '[:space:]')" ]]; then
-              decision="already published at master's version, nothing to build"
+              decision=published
+              said="already published at master's version, nothing to build"
             else
-              decision="no build artifact: rebuild on $(jq -r '.runner | fromjson | join(", ")' <<<"$entry")"
+              decision=rebuild
+              said="no build artifact: rebuild on $(jq -r '.runner | fromjson | join(", ")' <<<"$entry")"
               rebuild+=("$entry")
             fi
-            echo "==> $label: $decision"
-            echo "| $package | $arch | ${hash:0:12} | $decision |" >> "$GITHUB_STEP_SUMMARY"
+            planned+=("$(jq -c --arg d "$decision" '. + {decision: $d}' <<<"$entry")")
+            echo "==> $label: $said"
+            echo "| $package | $arch | ${hash:0:12} | $said |" >> "$GITHUB_STEP_SUMMARY"
           done < <(jq -c '.include[]' <<<"$matrix")
+          echo "matrix=$(printf '%s\n' "${planned[@]}" | jq -sc '{include: .}')" >> "$GITHUB_OUTPUT"
+          echo "count=${#planned[@]}" >> "$GITHUB_OUTPUT"
           echo "rebuild=$(printf '%s\n' "${rebuild[@]}" | jq -sc '{include: .}')" >> "$GITHUB_OUTPUT"
           echo "rebuild_count=${#rebuild[@]}" >> "$GITHUB_OUTPUT"
+      # The recipe index (bin/recipe-index) for the publish job: the fast
+      # ring's promotion and the Mac package-set check read it.
+      - name: Index the recipes
+        run: |
+          set -euo pipefail
+          bin/recipe-index > recipe-index.tsv
+          echo "$(wc -l < recipe-index.tsv) recipe index lines"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: recipe-index
+          path: recipe-index.tsv
+          if-no-files-found: error
+          retention-days: 7
 
   # "Build it now when there is none". Each entry builds exactly as
   # build-pr.yml builds it (same runner kind, same builder image, same
@@ -123,30 +145,49 @@ jobs:
         id: build
         env:
           CONTAINER_ENGINE: docker
+          PACKAGE: ${{ matrix.package }}
+          ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
-          plan=$(bin/build --dry-run --mirror edge --arch "${{ matrix.arch }}" --package "${{ matrix.package }}" 2>&1 | grep -E '^==> Plan complete' || true)
+          echo "label=$PACKAGE-$ARCH-$(git rev-parse "HEAD:pkgbuilds/$PACKAGE")" >> "$GITHUB_OUTPUT"
+          plan=$(bin/build --dry-run --mirror edge --arch "$ARCH" --package "$PACKAGE" 2>&1 | grep -E '^==> Plan complete' || true)
           if [[ -n "$plan" && -z "$(sed -E 's/.*would build: *//' <<<"$plan" | tr -d '[:space:]')" ]]; then
-            echo "==> ${{ matrix.package }} (${{ matrix.arch }}): already published at master's version, nothing to build"
+            echo "==> $PACKAGE ($ARCH): already published at master's version, nothing to build"
             echo "built=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          bin/build --mirror edge --arch "${{ matrix.arch }}" --package "${{ matrix.package }}"
+          bin/build --mirror edge --arch "$ARCH" --package "$PACKAGE"
           echo "built=true" >> "$GITHUB_OUTPUT"
       - name: Pack artifact
         if: steps.build.outputs.built == 'true'
         id: pack
+        env:
+          PACKAGE: ${{ matrix.package }}
+          ARCH: ${{ matrix.arch }}
         run: |
           source helpers/artifact-helpers.sh
-          pack_packages build-output/edge/${{ matrix.arch }} packages.tar
+          pack_packages "build-output/edge/$ARCH" packages.tar
           tar -tvf packages.tar
-          echo "label=${{ matrix.package }}-${{ matrix.arch }}-$(git rev-parse "HEAD:pkgbuilds/${{ matrix.package }}")" >> "$GITHUB_OUTPUT"
       - name: Upload artifact
         if: steps.build.outputs.built == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.pack.outputs.label }}
+          name: ${{ steps.build.outputs.label }}
           path: packages.tar
+          if-no-files-found: error
+          retention-days: 7
+      # The channel already serves this tree's version (another run published
+      # it after the changes job planned): say so to the publish job, which
+      # skips the package instead of waiting for an artifact.
+      - name: Record that it is already published
+        if: steps.build.outputs.built == 'false'
+        run: echo "${{ github.run_id }}" > published
+      - name: Upload the record
+        if: steps.build.outputs.built == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: published-${{ steps.build.outputs.label }}
+          path: published
           if-no-files-found: error
           retention-days: 7
 
@@ -179,14 +220,24 @@ jobs:
         with:
           persist-credentials: false
 
-      # Every matrix entry, as a file the shell steps can loop over:
-      # package arch channels publish_arches
+      # This run's recipe index, from the changes job.
+      - uses: actions/download-artifact@v4
+        with:
+          name: recipe-index
+          path: ${{ runner.temp }}/recipe-index
+
+      # What this job publishes comes from the changes job's matrix, checked
+      # field by field (bin/publish-plan), and from the built files. Every
+      # entry, as a file the shell steps can loop over:
+      # package arch channels publish_arches pkgbase decision
+      # plan.json keeps the same entries for the publish record.
       - name: Plan
+        env:
+          MATRIX: ${{ needs.changes.outputs.matrix }}
         run: |
-          jq -r '.include[] | "\(.package) \(.arch) \(.channels|gsub(" ";",")) \(.publish_arches|gsub(" ";","))"' \
-            <<'EOF_MATRIX' > plan.txt
-          ${{ needs.changes.outputs.matrix }}
-          EOF_MATRIX
+          set -euo pipefail
+          bin/publish-plan <<<"$MATRIX" > plan.txt
+          jq -c '.include' <<<"$MATRIX" > plan.json
           cat plan.txt
 
       # Fetch each package's artifact into build-output/edge/<arch>/: the PR's,
@@ -206,14 +257,23 @@ jobs:
           # the record says so instead of the report job finding nothing.
           : > sources.jsonl
           failed=0
-          while read -r package arch channels publish_arches; do
+          while read -r package arch _ _ _ decision; do
             hash=$(git rev-parse "HEAD:pkgbuilds/$package")
             label="$package-$arch-$hash"
+            # The changes job found the channel already serving this tree's
+            # version: a re-run, or a dispatch naming a package that is fine.
+            if [[ $decision == "published" ]]; then
+              echo "==> $label: already published at master's version, nothing to do"
+              jq -nc --arg p "$package" --arg a "$arch" '{package:$p, arch:$a, source:"already-published"}' >> sources.jsonl
+              continue
+            fi
+            # Decided again here rather than taken from the plan: which run
+            # supplies the bytes this job signs is this job's call.
             found=$(bin/build-artifact "$package" "$arch")
             read -r found from_run <<<"$found" || true
             mkdir -p "build-output/edge/$arch"
             if [[ -n "$found" ]]; then
-              if [[ $from_run == "${{ github.run_id }}" ]]; then
+              if [[ $from_run == "$GITHUB_RUN_ID" ]]; then
                 kind=rebuild
                 echo "==> $label: artifact from this run's $arch rebuild"
               else
@@ -228,18 +288,13 @@ jobs:
               else
                 jq -nc --arg p "$package" --arg a "$arch" '{package:$p, arch:$a, source:"artifact-download-failed"}' >> sources.jsonl; failed=1; break
               fi
+            elif gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts" --jq '.artifacts[].name' \
+              | grep -qxF "published-$label"; then
+              # This run's rebuild found the channel already serving this
+              # tree's version: another run published it after planning.
+              echo "==> $label: already published at master's version, nothing to do"
+              jq -nc --arg p "$package" --arg a "$arch" '{package:$p, arch:$a, source:"already-published"}' >> sources.jsonl
             else
-              # bin/build plans against the public channel first. If the
-              # channel already holds master's version there is nothing to
-              # build and nothing to publish: a re-run for a package that
-              # turned out to be fine. Record it and move on.
-              plan=$(CONTAINER_ENGINE=docker bin/build --dry-run --mirror edge --arch "$arch" --package "$package" 2>&1 | grep -E '^==> Plan complete' || true)
-              # "Packages that would build:" followed by nothing means none.
-              if [[ -n "$plan" && -z "$(sed -E 's/.*would build: *//' <<<"$plan" | tr -d '[:space:]')" ]]; then
-                echo "==> $label: already published at master's version, nothing to do"
-                jq -nc --arg p "$package" --arg a "$arch" '{package:$p, arch:$a, source:"already-published"}' >> sources.jsonl
-                continue
-              fi
               # Nothing builds here. No artifact means the rebuild failed (see
               # the rebuild job), or an artifact expired between planning and
               # now (re-run all jobs).
@@ -250,9 +305,9 @@ jobs:
           ls -1 build-output/edge/*/*.pkg.tar.zst 2>/dev/null || true
           if (( failed )); then
             # Write the record now; the publish step will not run.
-            jq -n --arg sha "${{ github.sha }}" --arg run "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-              --arg prefix "${OMARCHY_PUBLISH_PREFIX:-}" --arg event "${{ github.event_name }}" \
-              --slurpfile sources sources.jsonl --slurpfile plan <(jq -c '.include[]' <<<'${{ needs.changes.outputs.matrix }}' | jq -sc .) \
+            jq -n --arg sha "$GITHUB_SHA" --arg run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+              --arg prefix "${OMARCHY_PUBLISH_PREFIX:-}" --arg event "$GITHUB_EVENT_NAME" \
+              --slurpfile sources sources.jsonl --slurpfile plan plan.json \
               '{time: (now|todate), commit:$sha, run:$run, event:$event, target: (if $prefix=="" then "live" else $prefix end), plan:$plan[0], sources:$sources, slots:[]}' \
               > publish-record.json
             cat publish-record.json
@@ -278,9 +333,9 @@ jobs:
           set -euo pipefail
           if ! compgen -G "build-output/edge/*/*.pkg.tar.zst" >/dev/null; then
             echo "Nothing to publish: every requested package is already published at master's version."
-            jq -n --arg sha "${{ github.sha }}" --arg run "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-              --arg prefix "${OMARCHY_PUBLISH_PREFIX:-}" --arg event "${{ github.event_name }}" \
-              --slurpfile sources sources.jsonl --slurpfile plan <(jq -c '.include[]' <<<'${{ needs.changes.outputs.matrix }}' | jq -sc .) \
+            jq -n --arg sha "$GITHUB_SHA" --arg run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+              --arg prefix "${OMARCHY_PUBLISH_PREFIX:-}" --arg event "$GITHUB_EVENT_NAME" \
+              --slurpfile sources sources.jsonl --slurpfile plan plan.json \
               '{time: (now|todate), commit:$sha, run:$run, event:$event, target: (if $prefix=="" then "live" else $prefix end), plan:$plan[0], sources:$sources, slots:[]}' \
               > publish-record.json
             cat publish-record.json
@@ -324,10 +379,9 @@ jobs:
               printf "%s %s\n" "$f" "$base"
             done' > pkgbase.txt
           declare -A slot_files=()
-          while read -r package arch channels publish_arches; do
-            # The pkgbase the recipe builds, which is not always its directory
-            # name (pkgbuilds/yaru-icon-theme builds yaru).
-            base=$(BUILD_ROOT=$PWD bash -c 'source helpers/paths.sh; source helpers/package-metadata.sh; package_pkgbase "pkgbuilds/$1" "$2"' _ "$package" "$arch")
+          # pkgbase comes with the plan: what the recipe builds, which is not
+          # always its directory name (pkgbuilds/yaru-icon-theme builds yaru).
+          while read -r package arch channels publish_arches base _; do
             matched=0
             for f in build-output/edge/"$arch"/*.pkg.tar.zst; do
               [[ -e $f ]] || continue
@@ -349,9 +403,9 @@ jobs:
             fi
           done < plan.txt
           if [[ -n ${unmatched:-} ]]; then
-            jq -n --arg sha "${{ github.sha }}" --arg run "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-              --arg prefix "${OMARCHY_PUBLISH_PREFIX:-}" --arg event "${{ github.event_name }}" \
-              --slurpfile sources sources.jsonl --slurpfile plan <(jq -c '.include[]' <<<'${{ needs.changes.outputs.matrix }}' | jq -sc .) \
+            jq -n --arg sha "$GITHUB_SHA" --arg run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+              --arg prefix "${OMARCHY_PUBLISH_PREFIX:-}" --arg event "$GITHUB_EVENT_NAME" \
+              --slurpfile sources sources.jsonl --slurpfile plan plan.json \
               '{time: (now|todate), commit:$sha, run:$run, event:$event, target: (if $prefix=="" then "live" else $prefix end), plan:$plan[0], sources:$sources, slots:[]}' \
               > publish-record.json
             exit 1
@@ -382,9 +436,9 @@ jobs:
             -e OMARCHY_PUBLISH_PREFIX \
             -e RCLONE_CONFIG_R2_TYPE -e RCLONE_CONFIG_R2_PROVIDER -e RCLONE_CONFIG_R2_ENDPOINT -e RCLONE_CONFIG_R2_NO_CHECK_BUCKET \
             -e RCLONE_CONFIG_R2_ACCESS_KEY_ID -e RCLONE_CONFIG_R2_SECRET_ACCESS_KEY \
-            -v "$PWD:/w:ro" -w /w \
+            -v "$PWD:/w:ro" -v "$RUNNER_TEMP/recipe-index:/index:ro" -w /w \
             omarchy-pkg-builder:latest-x86_64-edge \
-            bin/check-mac-set --remote R2:omarchy-pkgs --slots mac-slots.txt; then
+            bin/check-mac-set --remote R2:omarchy-pkgs --recipe-index /index/recipe-index.tsv --slots mac-slots.txt; then
             echo "::error title=Mac package set::this merge would leave rc or stable without the qualified Mac set; nothing published"
             while read -r mirror parch files; do record_slot "$mirror" "$parch" refused "$files"; done < mac-slots.txt
             status=1
@@ -409,9 +463,9 @@ jobs:
               fi
             done
           done
-          jq -n --arg sha "${{ github.sha }}" --arg run "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-            --arg prefix "${OMARCHY_PUBLISH_PREFIX:-}" --arg event "${{ github.event_name }}" \
-            --slurpfile slots slots.jsonl --slurpfile sources sources.jsonl --slurpfile plan <(jq -c '.include[]' <<<'${{ needs.changes.outputs.matrix }}' | jq -sc .) \
+          jq -n --arg sha "$GITHUB_SHA" --arg run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --arg prefix "${OMARCHY_PUBLISH_PREFIX:-}" --arg event "$GITHUB_EVENT_NAME" \
+            --slurpfile slots slots.jsonl --slurpfile sources sources.jsonl --slurpfile plan plan.json \
             '{time: (now|todate), commit:$sha, run:$run, event:$event, target: (if $prefix=="" then "live" else $prefix end), plan:$plan[0], sources:$sources, slots:$slots}' \
             > publish-record.json
           cat publish-record.json
@@ -436,11 +490,11 @@ jobs:
           OMARCHY_PUBLISH_PREFIX: ${{ vars.OMARCHY_PUBLISH_PREFIX }}
         run: |
           set -euo pipefail
-          # The fast-ring pkgbases of this merge, per channel and architecture.
+          # The fast-ring pkgbases of this merge, per channel and architecture:
+          # a merge publishes to rc and stable only for the fast ring, so the
+          # plan's channels say which packages those are.
           declare -A bases=()
-          while read -r package arch channels publish_arches; do
-            BUILD_ROOT=$PWD bash -c 'source helpers/paths.sh; source helpers/package-metadata.sh; package_is_fast_ring "pkgbuilds/$1"' _ "$package" || continue
-            base=$(BUILD_ROOT=$PWD bash -c 'source helpers/paths.sh; source helpers/package-metadata.sh; package_pkgbase "pkgbuilds/$1" "$2"' _ "$package" "$arch")
+          while read -r _ _ channels publish_arches base _; do
             for mirror in rc stable; do
               [[ ",$channels," == *",$mirror,"* ]] || continue
               for parch in ${publish_arches//,/ }; do
@@ -484,9 +538,9 @@ jobs:
                 -e OMARCHY_PUBLISH_PREFIX \
                 -e RCLONE_CONFIG_R2_TYPE -e RCLONE_CONFIG_R2_PROVIDER -e RCLONE_CONFIG_R2_ENDPOINT -e RCLONE_CONFIG_R2_NO_CHECK_BUCKET \
                 -e RCLONE_CONFIG_R2_ACCESS_KEY_ID -e RCLONE_CONFIG_R2_SECRET_ACCESS_KEY \
-                -v "$PWD:/w:ro" -v "$RUNNER_TEMP/fast-ring:/out" -w /w "$builder" \
+                -v "$PWD:/w:ro" -v "$RUNNER_TEMP/fast-ring:/out" -v "$RUNNER_TEMP/recipe-index:/index:ro" -w /w "$builder" \
                 bin/promote-channel --remote R2:omarchy-pkgs --fast-ring --from edge --to "$mirror" --arch "$parch" \
-                  --dry-run --record /out/preflight.jsonl $list; then
+                  --recipe-index /index/recipe-index.tsv --dry-run --record /out/preflight.jsonl $list; then
                 echo "::error title=Mac package set::the fast-ring catch-up into $mirror/$parch was refused; nothing published"
                 jq -nc --arg m "$mirror" --arg a "$parch" --arg bases "$list" --slurpfile r "$RUNNER_TEMP/fast-ring/preflight.jsonl" \
                   '{type: "slot", mirror: $m, arch: $a, status: "refused", packages: [],
@@ -506,9 +560,9 @@ jobs:
                 -e GPG_PRIVATE_KEY -e GPG_PASSPHRASE -e OMARCHY_PUBLISH_PREFIX \
                 -e RCLONE_CONFIG_R2_TYPE -e RCLONE_CONFIG_R2_PROVIDER -e RCLONE_CONFIG_R2_ENDPOINT -e RCLONE_CONFIG_R2_NO_CHECK_BUCKET \
                 -e RCLONE_CONFIG_R2_ACCESS_KEY_ID -e RCLONE_CONFIG_R2_SECRET_ACCESS_KEY \
-                -v "$PWD:/w:ro" -v "$RUNNER_TEMP/fast-ring:/out" -w /w "$builder" \
+                -v "$PWD:/w:ro" -v "$RUNNER_TEMP/fast-ring:/out" -v "$RUNNER_TEMP/recipe-index:/index:ro" -w /w "$builder" \
                 bin/promote-channel --remote R2:omarchy-pkgs --fast-ring --from edge --to "$mirror" --arch "$parch" \
-                  --record /out/record.jsonl $list; then
+                  --recipe-index /index/recipe-index.tsv --record /out/record.jsonl $list; then
                 status=1
                 break 2
               fi
@@ -562,8 +616,10 @@ jobs:
           name: publish-record-${{ github.run_id }}
       - name: Render
         id: render
+        env:
+          OUTCOME: ${{ needs.publish.result }}
         run: |
-          jq -r --arg outcome "${{ needs.publish.result }}" '
+          jq -r --arg outcome "$OUTCOME" '
             def pkgs: [.packages[] | select(test("-debug-")|not)] | join(", ");
             def src: if .source=="pr-artifact" then "PR artifact" elif .source=="rebuild" or .source=="native-rebuild" then "rebuilt at merge" elif .source=="built" then "built here" elif .source=="already-published" then "already published, skipped" else "**" + .source + "**" end;
             "### Publish " + (if $outcome=="success" then "succeeded" else "FAILED" end) +

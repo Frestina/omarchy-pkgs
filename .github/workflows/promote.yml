@@ -43,7 +43,31 @@ on:
         default: false
 
 jobs:
+  # The recipe index: the pkgbase each package directory builds and whether
+  # it still builds for each architecture. The promote job reads this index
+  # rather than the recipes.
+  index:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Index the recipes
+        run: |
+          set -euo pipefail
+          bin/recipe-index > recipe-index.tsv
+          echo "$(wc -l < recipe-index.tsv) recipe index lines"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: recipe-index
+          path: recipe-index.tsv
+          if-no-files-found: error
+          retention-days: 7
+
   promote:
+    needs: index
     runs-on: ubuntu-latest
     environment: publish
     # A first promotion into a sparse channel moves gigabytes.
@@ -59,6 +83,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+
+      # This run's index job's output, nothing older.
+      - uses: actions/download-artifact@v4
+        with:
+          name: recipe-index
+          path: ${{ runner.temp }}/recipe-index
 
       - name: Check inputs
         id: inputs
@@ -114,9 +144,9 @@ jobs:
               -e GPG_PRIVATE_KEY -e GPG_PASSPHRASE -e OMARCHY_PUBLISH_PREFIX \
               -e RCLONE_CONFIG_R2_TYPE -e RCLONE_CONFIG_R2_PROVIDER -e RCLONE_CONFIG_R2_ENDPOINT -e RCLONE_CONFIG_R2_NO_CHECK_BUCKET \
               -e RCLONE_CONFIG_R2_ACCESS_KEY_ID -e RCLONE_CONFIG_R2_SECRET_ACCESS_KEY \
-              -v "$PWD:/w:ro" -v "$RUNNER_TEMP/promote:/out" -w /w "$builder" \
+              -v "$PWD:/w:ro" -v "$RUNNER_TEMP/promote:/out" -v "$RUNNER_TEMP/recipe-index:/index:ro" -w /w "$builder" \
               bin/promote-channel --remote R2:omarchy-pkgs --from "$FROM" --to "$TO" --arch "$arch" \
-                --record "/out/$record" "$@" $PACKAGES
+                --recipe-index /index/recipe-index.tsv --record "/out/$record" "$@" $PACKAGES
           }
           # Plan and check every architecture before either publishes: a
           # refusal on one leaves both channels as they were. The lock is
